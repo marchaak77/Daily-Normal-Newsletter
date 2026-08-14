@@ -29,7 +29,28 @@ COVER = ROOT / "Design" / "Cover Page Example.jpeg"
 STANDARD = ROOT / "Design" / "Main Design Template.pdf"
 OUTPUT = ROOT / "Output"
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+def _find_chrome():
+    """Chrome bzw. Chromium finden. macOS zuerst, danach die üblichen Linux-Pfade."""
+    kandidaten = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ]
+    for k in kandidaten:
+        if pathlib.Path(k).exists():
+            return k
+    for name in ("google-chrome", "chromium", "chromium-browser"):
+        gefunden = shutil.which(name)
+        if gefunden:
+            return gefunden
+    for treffer in sorted(pathlib.Path("/opt/pw-browsers").glob("chromium-*/chrome-linux/chrome")):
+        return str(treffer)
+    fail("Weder Chrome noch Chromium gefunden. Ohne Browser wird keine PDF erzeugt.")
+
+
+CHROME = None
 
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
@@ -62,9 +83,15 @@ def check_standard():
 def cover_b64():
     """Coverbild auf 1800 px verkleinern und als base64 zurückgeben."""
     tmp = pathlib.Path(tempfile.mkdtemp()) / "cover.jpg"
-    subprocess.run(["sips", "-Z", "1800", "-s", "format", "jpeg",
-                    "-s", "formatOptions", "72", str(COVER), "--out", str(tmp)],
-                   capture_output=True, check=True)
+    if shutil.which("sips"):
+        subprocess.run(["sips", "-Z", "1800", "-s", "format", "jpeg",
+                        "-s", "formatOptions", "72", str(COVER), "--out", str(tmp)],
+                       capture_output=True, check=True)
+    else:
+        from PIL import Image
+        im = Image.open(COVER).convert("RGB")
+        im.thumbnail((1800, 1800), Image.LANCZOS)
+        im.save(tmp, "JPEG", quality=72)
     return base64.b64encode(tmp.read_bytes()).decode()
 
 
@@ -221,7 +248,11 @@ def main():
 
     datum = (datetime.date.fromisoformat(args.date) if args.date else datetime.date.today())
 
+    global CHROME
+    CHROME = _find_chrome()
+
     print(f"Ausgabe            {datum.strftime('%d.%m.%Y')}")
+    print(f"Browser            {CHROME}")
     check_standard()
 
     pdf, page = render(datum)
